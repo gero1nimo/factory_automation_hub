@@ -1,4 +1,4 @@
-# protocols.py
+# protocols_facade.py
 # The Facade pattern lives here. Floor supervisors shouldn't need to know
 # which machines to stop first or what order to open vents in —
 # they just call emergency_stop() and everything happens correctly underneath.
@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 from typing import List
-from patterns.mainframe import FactoryMainframe
+from src.core.mainframe import FactoryMainframe
 
 
 class ProtocolFacade:

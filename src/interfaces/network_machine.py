@@ -1,4 +1,4 @@
-# interfaces.py
+# network_machine.py
 # Holds the shared contract that every machine on the floor must follow.
 # Whether a machine is brand new and networked or a 30-year-old analog unit
 # wrapped in an adapter, the mainframe only ever talks to this interface.

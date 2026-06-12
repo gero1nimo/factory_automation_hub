@@ -1,10 +1,10 @@
-# modern_machines.py
+# modern.py
 # The three networked machines that live on the factory floor.
 # Each one only worries about its own state and behavior — the mainframe
 # tells them what to do, but they decide how to do it internally.
 # All three implement INetworkMachine so the mainframe treats them uniformly.
 
-from machines.interfaces import INetworkMachine
+from src.interfaces.network_machine import INetworkMachine
 
 
 class RoboticArm(INetworkMachine):

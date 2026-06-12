@@ -1,13 +1,13 @@
-# factory.py
+# machinery_factory.py
 # MachineryFactory is the only place in the whole project where
 # machine objects get constructed. Everything else just calls create()
 # and gets back an INetworkMachine — no constructors scattered around.
 # To add a new machine type later, you add one entry here and nothing else changes.
 
-from machines.interfaces    import INetworkMachine
-from machines.modern_machines import RoboticArm, SmartConveyor, LaserCutter
-from machines.legacy_machines import LegacyHydraulicPress, AnalogFurnace
-from adapters.adapters        import HydraulicPressAdapter, AnalogFurnaceAdapter
+from src.interfaces.network_machine import INetworkMachine
+from src.machines.modern import RoboticArm, SmartConveyor, LaserCutter
+from src.machines.legacy import LegacyHydraulicPress, AnalogFurnace
+from src.patterns.adapters import HydraulicPressAdapter, AnalogFurnaceAdapter
 
 
 class MachineryFactory:

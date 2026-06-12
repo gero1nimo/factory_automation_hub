@@ -6,8 +6,8 @@
 # translate each call into whatever the old hardware actually needs.
 # Think of it like a power plug converter: same electricity, different socket.
 
-from machines.interfaces import INetworkMachine
-from machines.legacy_machines import LegacyHydraulicPress, AnalogFurnace
+from src.interfaces.network_machine import INetworkMachine
+from src.machines.legacy import LegacyHydraulicPress, AnalogFurnace
 
 
 class HydraulicPressAdapter(INetworkMachine):
@@ -28,17 +28,17 @@ class HydraulicPressAdapter(INetworkMachine):
     def activate(self) -> str:
         self._online = True
         raw = self._press.plc_pressurize(bar=150)
-        return f"[PLC Adapter] activate → {raw}"
+        return f"[PLC Adapter] activate -> {raw}"
 
     def deactivate(self) -> str:
         self._online = False
         raw = self._press.plc_release_pressure()
-        return f"[PLC Adapter] deactivate → {raw}"
+        return f"[PLC Adapter] deactivate -> {raw}"
 
     def emergency_stop(self) -> str:
         self._online = False
         raw = self._press.plc_vent_emergency()
-        return f"[PLC Adapter] emergency_stop → {raw}"
+        return f"[PLC Adapter] emergency_stop -> {raw}"
 
     def status_report(self) -> str:
         gauge      = self._press.plc_read_gauge()
@@ -65,19 +65,19 @@ class AnalogFurnaceAdapter(INetworkMachine):
         self._online = True
         ignite = self._furnace.relay_ignite(target_temp=900)
         seal   = self._furnace.relay_close_vents()
-        return f"[Relay Adapter] activate → {ignite} | {seal}"
+        return f"[Relay Adapter] activate -> {ignite} | {seal}"
 
     def deactivate(self) -> str:
         self._online  = False
         burners_off   = self._furnace.relay_shutdown_burners()
         open_vents    = self._furnace.relay_open_vents()
-        return f"[Relay Adapter] deactivate → {burners_off} | {open_vents}"
+        return f"[Relay Adapter] deactivate -> {burners_off} | {open_vents}"
 
     def emergency_stop(self) -> str:
         self._online  = False
         burners_off   = self._furnace.relay_shutdown_burners()
         open_vents    = self._furnace.relay_open_vents()
-        return f"[Relay Adapter] emergency_stop → {burners_off} | {open_vents}"
+        return f"[Relay Adapter] emergency_stop -> {burners_off} | {open_vents}"
 
     def status_report(self) -> str:
         reading    = self._furnace.relay_read_thermocouple()

@@ -1,8 +1,8 @@
-# legacy_machines.py
+# legacy.py
 # These two machines predate the factory network entirely.
 # They have no idea what INetworkMachine is — they just expose
 # whatever vendor API they shipped with back in the day.
-# The adapter layer (in adapters.py) is what bridges the gap.
+# The adapter layer (in patterns/adapters.py) is what bridges the gap.
 
 class LegacyHydraulicPress:
     """

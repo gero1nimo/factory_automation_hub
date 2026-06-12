@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 from typing import Dict, List, Optional
-from machines.interfaces import INetworkMachine
+from src.interfaces.network_machine import INetworkMachine
 
 
 class FactoryMainframe:

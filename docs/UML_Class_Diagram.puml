@@ -1,0 +1,190 @@
+@startuml Factory_Automation_Hub
+
+skinparam classAttributeIconSize 0
+skinparam backgroundColor #FAFAFA
+skinparam class {
+    BackgroundColor #EEF2FF
+    BorderColor     #4F46E5
+    ArrowColor      #4F46E5
+    FontName        Arial
+}
+skinparam note {
+    BackgroundColor #FEF9C3
+    BorderColor     #CA8A04
+}
+
+' ── Interfaces ──────────────────────────────────────────────────────────────
+
+package "interfaces" #F0FFF4 {
+    abstract class INetworkMachine {
+        +{abstract} activate() : str
+        +{abstract} deactivate() : str
+        +{abstract} emergency_stop() : str
+        +{abstract} status_report() : str
+        +{abstract} machine_id : str
+    }
+}
+
+' ── Machines ─────────────────────────────────────────────────────────────────
+
+package "machines" #EFF6FF {
+    class RoboticArm {
+        -_id : str
+        -_active : bool
+        -_locked : bool
+        +activate() : str
+        +deactivate() : str
+        +emergency_stop() : str
+        +status_report() : str
+    }
+
+    class SmartConveyor {
+        -_id : str
+        -_speed : float
+        -_running : bool
+        +activate() : str
+        +deactivate() : str
+        +emergency_stop() : str
+        +status_report() : str
+    }
+
+    class LaserCutter {
+        -_id : str
+        -_power : int
+        -_beam_on : bool
+        +activate() : str
+        +deactivate() : str
+        +emergency_stop() : str
+        +status_report() : str
+    }
+
+    class LegacyHydraulicPress {
+        +serial_number : str
+        -_pressure_bar : int
+        -_valve_open : bool
+        +plc_pressurize(bar) : str
+        +plc_release_pressure() : str
+        +plc_vent_emergency() : str
+        +plc_read_gauge() : str
+    }
+
+    class AnalogFurnace {
+        +furnace_tag : str
+        -_temp_celsius : int
+        -_vent_open : bool
+        +relay_ignite(target_temp) : str
+        +relay_shutdown_burners() : str
+        +relay_open_vents() : str
+        +relay_close_vents() : str
+        +relay_read_thermocouple() : str
+    }
+}
+
+' ── Patterns ──────────────────────────────────────────────────────────────────
+
+package "patterns" #FFF7ED {
+    class HydraulicPressAdapter {
+        -_press : LegacyHydraulicPress
+        -_online : bool
+        +machine_id : str
+        +activate() : str
+        +deactivate() : str
+        +emergency_stop() : str
+        +status_report() : str
+    }
+
+    class AnalogFurnaceAdapter {
+        -_furnace : AnalogFurnace
+        -_online : bool
+        +machine_id : str
+        +activate() : str
+        +deactivate() : str
+        +emergency_stop() : str
+        +status_report() : str
+    }
+
+    class MachineryFactory {
+        -{static} _BUILDERS : dict
+        +{static} create(config : dict) : INetworkMachine
+        -{static} _build_robotic_arm(cfg) : RoboticArm
+        -{static} _build_smart_conveyor(cfg) : SmartConveyor
+        -{static} _build_laser_cutter(cfg) : LaserCutter
+        -{static} _build_hydraulic_press(cfg) : HydraulicPressAdapter
+        -{static} _build_analog_furnace(cfg) : AnalogFurnaceAdapter
+    }
+
+    class ProtocolFacade {
+        -_hub : FactoryMainframe
+        +emergency_stop() : List[str]
+        +startup_sequence() : List[str]
+        +shutdown_sequence() : List[str]
+        +fire_drill_protocol() : List[str]
+        +maintenance_mode() : List[str]
+    }
+}
+
+' ── Core ──────────────────────────────────────────────────────────────────────
+
+package "core" #FDF4FF {
+    class FactoryMainframe {
+        -{static} _instance : FactoryMainframe
+        -_floor : Dict[str, INetworkMachine]
+        -_event_log : List[str]
+        +register_machine(machine) : void
+        +unregister_machine(machine_id) : void
+        +get_machine(machine_id) : INetworkMachine
+        +all_machine_ids() : List[str]
+        +activate_machine(machine_id) : str
+        +deactivate_machine(machine_id) : str
+        +emergency_stop_machine(machine_id) : str
+        +floor_status() : List[str]
+        +get_log() : List[str]
+    }
+}
+
+' ── Relationships ─────────────────────────────────────────────────────────────
+
+INetworkMachine <|.. RoboticArm
+INetworkMachine <|.. SmartConveyor
+INetworkMachine <|.. LaserCutter
+INetworkMachine <|.. HydraulicPressAdapter
+INetworkMachine <|.. AnalogFurnaceAdapter
+
+HydraulicPressAdapter *-- LegacyHydraulicPress : wraps
+AnalogFurnaceAdapter  *-- AnalogFurnace        : wraps
+
+MachineryFactory ..> INetworkMachine       : <<creates>>
+MachineryFactory ..> RoboticArm
+MachineryFactory ..> SmartConveyor
+MachineryFactory ..> LaserCutter
+MachineryFactory ..> HydraulicPressAdapter
+MachineryFactory ..> AnalogFurnaceAdapter
+
+FactoryMainframe "1" o-- "0..*" INetworkMachine : manages
+FactoryMainframe ..> FactoryMainframe            : <<singleton>>
+
+ProtocolFacade --> FactoryMainframe : delegates to
+
+' ── Pattern notes ─────────────────────────────────────────────────────────────
+
+note top of FactoryMainframe
+  **Singleton Pattern**
+  __new__ ensures only one instance exists
+end note
+
+note top of MachineryFactory
+  **Factory Method Pattern**
+  Centralised object creation via _BUILDERS dict
+end note
+
+note top of HydraulicPressAdapter
+  **Adapter Pattern**
+  Bridges legacy PLC/relay API to INetworkMachine
+end note
+
+note top of ProtocolFacade
+  **Facade Pattern**
+  Hides multi-step floor protocols behind 5 methods
+end note
+
+@enduml
