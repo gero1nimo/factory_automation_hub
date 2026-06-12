@@ -2,6 +2,8 @@
 
 A central command software system for an industrial manufacturing plant. The hub coordinates network-enabled modern robotics alongside decades-old analog machinery, and exposes simple emergency and operational protocols to floor supervisors.
 
+The implementation deliberately mirrors the UML class diagrams: class names, the `MachineStatus` enumeration, the `MachineConfig` value object, the `IMachineFactory` / `IProtocolFacade` interfaces, and the public method names (`start`, `stop`, `getStatus`, `getInstance`, `createMachine`, ...) all match the diagram one-to-one.
+
 ---
 
 ## Project Structure
@@ -9,24 +11,27 @@ A central command software system for an industrial manufacturing plant. The hub
 ```text
 factory_automation_hub/
 ├── src/
-│   ├── core/
-│   │   └── mainframe.py              # Singleton: FactoryMainframe
-│   ├── interfaces/
-│   │   └── network_machine.py        # DIP: INetworkMachine (abc)
+│   ├── interfaces/                      # DIP abstractions + value objects
+│   │   ├── network_machine.py           # «interface» INetworkMachine
+│   │   ├── machine_status.py            # «enumeration» MachineStatus
+│   │   ├── machine_config.py            # MachineConfig value object
+│   │   ├── factory_interface.py         # «interface» IMachineFactory
+│   │   └── facade_interface.py          # «interface» IProtocolFacade
 │   ├── machines/
-│   │   ├── modern.py                 # RoboticArm, SmartConveyor, LaserCutter
-│   │   └── legacy.py                 # LegacyHydraulicPress, AnalogFurnace
+│   │   ├── modern.py                    # RoboticArm, SmartConveyor, LaserCutter
+│   │   └── legacy.py                    # LegacyHydraulicPress, AnalogFurnace
 │   ├── patterns/
-│   │   ├── machinery_factory.py      # Factory Method
-│   │   ├── adapters.py               # Adapter
-│   │   └── protocols_facade.py       # Facade
+│   │   ├── machinery_factory.py         # MachineryFactory + PlantConfigReader
+│   │   ├── adapters.py                  # PLCController + the two adapters
+│   │   └── protocols_facade.py          # OperationalFacade
+│   ├── core/
+│   │   └── mainframe.py                 # «Singleton» FactoryMainframe
 │   └── utils/
-│       └── display.py                # Rich terminal formatting
+│       └── display.py                   # Rich terminal formatting
 ├── data/
-│   └── plant_config.json             # Machine fleet configuration
-├── docs/
-│   └── UML_Class_Diagram.puml        # PlantUML source — render to PNG
-├── main.py                           # Simulation entry point
+│   └── plant_config.json                # Machine fleet configuration
+├── docs/                                # UML class diagrams (PDF / PNG)
+├── main.py                              # Simulation entry point
 ├── requirements.txt
 └── README.md
 ```
@@ -40,52 +45,47 @@ pip install -r requirements.txt
 python main.py
 ```
 
+The driver walks through all four patterns step by step and prints the floor status after each protocol.
+
 ---
 
 ## Design Patterns
 
 ### Singleton — `src/core/mainframe.py`
 
-`FactoryMainframe` overrides `__new__` to ensure only one instance ever exists. A second call to `FactoryMainframe()` returns the exact same object. This prevents two command centres from issuing conflicting commands to the same floor.
+`FactoryMainframe` overrides `__new__` so only one instance ever exists; `getInstance()` is the intended access point and returns that shared object. This prevents two command centres from issuing conflicting commands. It owns the machine registry (`List[INetworkMachine]`) and an `IMachineFactory`.
 
 ### Factory Method — `src/patterns/machinery_factory.py`
 
-`MachineryFactory.create(config)` is the **single construction point** for all machine objects. Callers pass a plain dict with `type` and `id` keys; the factory resolves which concrete class to build and returns an `INetworkMachine`. Adding a new machine type requires touching only the `_BUILDERS` dict — nothing else changes.
+`MachineryFactory` (implements `IMachineFactory`) is the **single construction point** for machines. `createMachine(machineType, config)` resolves a `MachineConfig` to the right concrete `INetworkMachine`; `createFromConfig(configFile)` builds the whole fleet. `PlantConfigReader` turns the JSON plant file into typed `MachineConfig` objects via `readConfig()` / `parseEntry()`.
 
 ### Adapter — `src/patterns/adapters.py`
 
-`HydraulicPressAdapter` and `AnalogFurnaceAdapter` wrap the two legacy machines (`LegacyHydraulicPress`, `AnalogFurnace`) so the mainframe can treat them as `INetworkMachine`. The mainframe calls `activate()` / `emergency_stop()` and never learns about `plc_pressurize()` or `relay_ignite()`.
+`HydraulicPressAdapter` and `AnalogFurnaceAdapter` wrap the two legacy machines and implement `INetworkMachine`. Every call is forwarded through a `PLCController` (a simulated programmable logic controller) and translated into the legacy API. The mainframe calls `start()` / `stop()` and never learns about `activateManually()` or `ignite()`.
 
 ### Facade — `src/patterns/protocols_facade.py`
 
-`ProtocolFacade` gives floor supervisors five plain commands:
+`OperationalFacade` (implements `IProtocolFacade`) gives supervisors one-call protocols. `executeProtocol(name)` dispatches to:
 
 | Method | What it hides |
 |---|---|
-| `startup_sequence()` | Ordered activation: conveyors → furnaces → arms → cutters → presses |
-| `shutdown_sequence()` | Reverse shutdown: presses → cutters → arms → furnaces → conveyors |
-| `emergency_stop()` | Priority stop with keyword-based ordering |
-| `fire_drill_protocol()` | Emergency stop + full status readout |
-| `maintenance_mode()` | Graceful shutdown + full diagnostic |
+| `startupSequence()` | Ordered activation: conveyors → furnaces → arms → cutters → presses |
+| `shutdownSequence()` | Reverse, graceful power-down |
+| `emergencyStop()` | Halt conveyors → open furnace vents → lock arms → kill beams / vent presses |
+| `maintenanceMode()` | Graceful shutdown, then flag every machine `MAINTENANCE` |
 
 ---
 
 ## SOLID Principles
 
-### S — Single Responsibility Principle
+### S — Single Responsibility
+Each class has one reason to change: `INetworkMachine` owns the contract, `FactoryMainframe` owns the registry, `MachineryFactory` owns construction, `PlantConfigReader` owns config parsing, `OperationalFacade` owns protocol orchestration, `display.py` owns presentation.
 
-Every class has exactly one reason to change:
+### O — Open/Closed
+A new machine type is added by extending `createMachine` (and the config file) — existing machines are untouched. A new protocol is a new method on the facade.
 
-- `INetworkMachine` — owns only the machine contract (`src/interfaces/network_machine.py`)
-- `FactoryMainframe` — owns only registry management and command routing (`src/core/mainframe.py`)
-- `MachineryFactory` — owns only object construction (`src/patterns/machinery_factory.py`)
-- `ProtocolFacade` — owns only multi-step protocol orchestration (`src/patterns/protocols_facade.py`)
-- `display.py` — owns only terminal formatting (`src/utils/display.py`)
+### L — Liskov Substitution
+Every `RoboticArm`, `SmartConveyor`, `LaserCutter`, and adapter is fully substitutable wherever an `INetworkMachine` is expected; the mainframe drives them all through the same five methods.
 
-### O — Open/Closed Principle
-
-`MachineryFactory._BUILDERS` is a dict that can be extended with new machine types without modifying any existing builder method — open for extension, closed for modification. Similarly, adding a new protocol to `ProtocolFacade` leaves all existing protocols untouched.
-
-### D — Dependency Inversion Principle
-
-`FactoryMainframe` holds `Dict[str, INetworkMachine]` and calls only abstract methods defined in `src/interfaces/network_machine.py`. It depends on the **abstraction**, never on `RoboticArm`, `HydraulicPressAdapter`, or any other concrete class. `ProtocolFacade` follows the same rule — it only talks to the mainframe, never to individual machines directly.
+### D — Dependency Inversion
+`FactoryMainframe`, `MachineryFactory`, and `OperationalFacade` all depend on the abstractions in `src/interfaces/` (`INetworkMachine`, `IMachineFactory`, `IProtocolFacade`) — never on a concrete machine class.

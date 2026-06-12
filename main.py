@@ -1,119 +1,81 @@
-# main.py
-# Simulation entry point. Runs through all four design patterns step by step.
-# Machine config is loaded from data/plant_config.json.
-# Run with:  python main.py
-
-import json
 import os
 
 from src.core.mainframe import FactoryMainframe
+from src.patterns.protocols_facade import OperationalFacade
 from src.patterns.machinery_factory import MachineryFactory
-from src.patterns.protocols_facade import ProtocolFacade
-from src.utils.display import (
-    console,
-    section_header,
-    print_machine_registered,
-    print_singleton_check,
-    print_results,
-    print_log_tail,
-    print_summary,
-)
+from src.interfaces.machine_config import MachineConfig
+from src.interfaces.network_machine import INetworkMachine
+from src.patterns.adapters import HydraulicPressAdapter, AnalogFurnaceAdapter
+from src.utils import display
 
 _CONFIG_PATH = os.path.join(os.path.dirname(__file__), "data", "plant_config.json")
 
 
-def _load_config() -> list:
-    with open(_CONFIG_PATH) as f:
-        return json.load(f)
-
-
 def run_simulation() -> None:
 
-    # ── STEP 1: Singleton ────────────────────────────────────────────────────
-    section_header(1, "Singleton: FactoryMainframe")
-
-    hub_a = FactoryMainframe()
-    hub_b = FactoryMainframe()
-    print_singleton_check(id(hub_a), id(hub_b), hub_a is hub_b)
-    assert hub_a is hub_b, "FAIL — two separate mainframe instances exist!"
+    display.section_header(1, "Singleton: FactoryMainframe.getInstance()")
+    hub_a = FactoryMainframe.getInstance()
+    hub_b = FactoryMainframe.getInstance()
+    display.print_singleton_check(id(hub_a), id(hub_b), hub_a is hub_b)
+    assert hub_a is hub_b
     mainframe = hub_a
 
-    # ── STEP 2: Factory Method ───────────────────────────────────────────────
-    section_header(2, "Factory Method: MachineryFactory")
-
-    for cfg in _load_config():
-        machine = MachineryFactory.create(cfg)
-        mainframe.register_machine(machine)
-        print_machine_registered(machine.machine_id, type(machine).__name__)
-
-    console.print(f"\n  Total machines on floor: [bold]{len(mainframe.all_machine_ids())}[/bold]")
-
-    # ── STEP 3: Adapter ──────────────────────────────────────────────────────
-    section_header(3, "Adapter: Legacy machines via PLC / Relay adapters")
-
-    legacy_ids = [mid for mid in mainframe.all_machine_ids() if "ADAPTER" in mid]
-    console.print(
-        "  The mainframe calls standard [italic]activate()[/italic] on legacy machines.\n"
-        "  It has zero knowledge of [italic]plc_pressurize()[/italic] or [italic]relay_ignite()[/italic].\n"
+    display.section_header(2, "Factory Method: loadFromConfig()")
+    mainframe.loadFromConfig(_CONFIG_PATH)
+    for machine in mainframe.getMachines():
+        display.print_machine_registered(
+            machine.getId(), type(machine).__name__, machine.getType()
+        )
+    display.success(
+        f"{len(mainframe.getMachines())} machines built from "
+        f"{os.path.basename(_CONFIG_PATH)} via PlantConfigReader."
     )
-    for mid in legacy_ids:
-        console.print(f"  {mainframe.activate_machine(mid)}")
 
-    console.print("\n  [dim]Status back through the adapters:[/dim]")
-    for mid in legacy_ids:
-        console.print(f"  {mainframe.get_machine(mid).status_report()}")
+    display.section_header(3, "Adapter: Legacy machines via PLCController")
+    display.info("Mainframe calls start()/stop(); the adapter translates to the legacy PLC API.\n")
+    for machine in mainframe.getMachines():
+        if isinstance(machine, (HydraulicPressAdapter, AnalogFurnaceAdapter)):
+            machine.start()
+            legacy = getattr(machine, "press", None) or getattr(machine, "furnace")
+            display.info(
+                f"{machine.getId():<14} PLC[{machine.plcController.protocol}] "
+                f"-> {machine.plcController.getResponse()}"
+            )
+            display.info(f"{'':<14} raw legacy state -> {legacy.getAnalogStatus()}")
 
-    # ── STEP 4: Facade — startup ─────────────────────────────────────────────
-    section_header(4, "Facade: Startup Sequence")
+    display.section_header(4, "Facade: OperationalFacade.startupSequence()")
+    facade = OperationalFacade(mainframe)
+    facade.startupSequence()
+    display.success("Startup protocol complete.")
+    display.status_table("Floor status after startup", mainframe.getSystemStatus())
 
-    facade = ProtocolFacade(mainframe)
-    print_results(facade.startup_sequence())
+    display.section_header(5, "Facade: executeProtocol('emergency_stop')")
+    facade.executeProtocol("emergency_stop")
+    display.status_table("Floor status after emergency stop", mainframe.getSystemStatus())
 
-    # ── STEP 5: Floor status ─────────────────────────────────────────────────
-    section_header(5, "Floor Status Snapshot")
+    display.section_header(6, "DIP: mainframe depends only on INetworkMachine")
+    arm = mainframe.getMachineById("ARM-01")
+    display.info(
+        f"ARM-01 is a {type(arm).__name__}, but the hub holds it as "
+        f"INetworkMachine: {isinstance(arm, INetworkMachine)}"
+    )
+    arm.start()
+    display.info(f"ARM-01 restarted individually -> {arm.getStatus().name}")
 
-    for line in mainframe.floor_status():
-        console.print(f"  {line}")
+    display.section_header(7, "Facade: OperationalFacade.maintenanceMode()")
+    facade.maintenanceMode()
+    display.status_table("Floor status in maintenance", mainframe.getSystemStatus())
 
-    # ── STEP 6: Facade — emergency stop ──────────────────────────────────────
-    section_header(6, "Facade: Emergency Stop")
-
-    print_results(facade.emergency_stop())
-
-    # ── STEP 7: DIP ──────────────────────────────────────────────────────────
-    section_header(7, "DIP: Mainframe talks through INetworkMachine only")
-
-    console.print("  Bringing ARM-01 and CONV-01 back online individually.")
-    console.print("  [dim]Mainframe holds Dict[str, INetworkMachine] — no concrete types.[/dim]\n")
-    console.print(f"  {mainframe.activate_machine('ARM-01')}")
-    console.print(f"  {mainframe.activate_machine('CONV-01')}")
-
-    # ── STEP 8: Facade — fire drill ───────────────────────────────────────────
-    section_header(8, "Facade: Fire Drill")
-
-    print_results(facade.fire_drill_protocol())
-
-    # ── STEP 9: Facade — maintenance mode ────────────────────────────────────
-    section_header(9, "Facade: Maintenance Mode")
-
-    print_results(facade.maintenance_mode())
-
-    # ── STEP 10: Factory error handling ──────────────────────────────────────
-    section_header(10, "Error Handling: unrecognised machine type")
-
+    display.section_header(8, "Error Handling: unrecognised machine type")
     try:
-        MachineryFactory.create({"type": "quantum_teleporter", "id": "QT-99"})
+        MachineryFactory().createMachine(
+            "quantum_teleporter", MachineConfig("quantum_teleporter", "QT-99")
+        )
     except ValueError as err:
-        console.print(f"  [red]Factory raised ValueError as expected:[/red]\n  -> {err}")
+        display.success(f"ValueError raised as expected -> {err}")
 
-    # ── STEP 11: Audit log ────────────────────────────────────────────────────
-    section_header(11, "Mainframe audit log (last 10 entries)")
-
-    print_log_tail(mainframe.get_log()[-10:])
-
-    # ── Summary ───────────────────────────────────────────────────────────────
-    console.print()
-    print_summary()
+    display.console.print()
+    display.print_summary()
 
 
 if __name__ == "__main__":

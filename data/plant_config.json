@@ -1,9 +1,9 @@
 [
-  {"type": "robotic_arm",     "id": "ARM-01"},
-  {"type": "robotic_arm",     "id": "ARM-02"},
-  {"type": "smart_conveyor",  "id": "CONV-01", "speed": 0.8},
-  {"type": "smart_conveyor",  "id": "CONV-02", "speed": 0.4},
-  {"type": "laser_cutter",    "id": "LASER-01", "power": 350},
-  {"type": "hydraulic_press", "id": "PRESS-SN7741"},
-  {"type": "analog_furnace",  "id": "FURN-TAG-A3"}
+  { "machineType": "robotic_arm",     "machineId": "ARM-01",       "parameters": {} },
+  { "machineType": "robotic_arm",     "machineId": "ARM-02",       "parameters": {} },
+  { "machineType": "smart_conveyor",  "machineId": "CONV-01",      "parameters": { "speed": 0.8 } },
+  { "machineType": "smart_conveyor",  "machineId": "CONV-02",      "parameters": { "speed": 0.4 } },
+  { "machineType": "laser_cutter",    "machineId": "LASER-01",     "parameters": { "power": 350 } },
+  { "machineType": "hydraulic_press", "machineId": "PRESS-SN7741", "parameters": {} },
+  { "machineType": "analog_furnace",  "machineId": "FURN-TAG-A3",  "parameters": {} }
 ]

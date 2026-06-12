@@ -1,85 +1,113 @@
-# adapters.py
-# This is where the Adapter pattern lives.
-# The two legacy machines have their own weird vendor commands that nothing
-# else in our system understands. These adapter classes sit in between —
-# they look like INetworkMachine to the mainframe, but they quietly
-# translate each call into whatever the old hardware actually needs.
-# Think of it like a power plug converter: same electricity, different socket.
+from __future__ import annotations
+
+from typing import Optional
 
 from src.interfaces.network_machine import INetworkMachine
+from src.interfaces.machine_status import MachineStatus
 from src.machines.legacy import LegacyHydraulicPress, AnalogFurnace
 
 
+class PLCController:
+
+    def __init__(self, controllerId: str, protocol: str = "MODBUS") -> None:
+        self.controllerId = controllerId
+        self.protocol = protocol
+        self._connected = False
+        self._lastResponse = ""
+
+    def connect(self) -> None:
+        self._connected = True
+        self._lastResponse = f"{self.controllerId}: link up over {self.protocol}"
+
+    def disconnect(self) -> None:
+        self._connected = False
+        self._lastResponse = f"{self.controllerId}: link down"
+
+    def sendCommand(self, command: str) -> bool:
+        if not self._connected:
+            self._lastResponse = f"{self.controllerId}: DROPPED '{command}' (offline)"
+            return False
+        self._lastResponse = f"{self.controllerId}: ACK '{command}'"
+        return True
+
+    def getResponse(self) -> str:
+        return self._lastResponse
+
+    def isConnected(self) -> bool:
+        return self._connected
+
+
 class HydraulicPressAdapter(INetworkMachine):
-    """
-    Wraps the old hydraulic press so the mainframe can treat it
-    like any other networked machine. Internally this acts as a
-    simulated PLC controller that forwards translated commands.
-    """
 
-    def __init__(self, press: LegacyHydraulicPress) -> None:
-        self._press  = press    # the actual legacy hardware object
-        self._online = False
+    def __init__(self, press: LegacyHydraulicPress, machineId: str,
+                 plcController: Optional[PLCController] = None) -> None:
+        self.machineId = machineId
+        self.press = press
+        self.plcController = plcController or PLCController(f"PLC-{machineId}")
+        self.status = MachineStatus.IDLE
 
-    @property
-    def machine_id(self) -> str:
-        return f"ADAPTER-HydPress-{self._press.serial_number}"
+    def start(self) -> None:
+        self.plcController.connect()
+        self.plcController.sendCommand("PRESSURIZE 150")
+        self.press.activateManually()
+        self.press.setPressure(150.0)
+        self.status = MachineStatus.RUNNING
 
-    def activate(self) -> str:
-        self._online = True
-        raw = self._press.plc_pressurize(bar=150)
-        return f"[PLC Adapter] activate -> {raw}"
+    def stop(self) -> None:
+        self.plcController.sendCommand("RELEASE")
+        self.press.deactivateManually()
+        self.plcController.disconnect()
+        self.status = MachineStatus.IDLE
 
-    def deactivate(self) -> str:
-        self._online = False
-        raw = self._press.plc_release_pressure()
-        return f"[PLC Adapter] deactivate -> {raw}"
+    def getStatus(self) -> MachineStatus:
+        return self.status
 
-    def emergency_stop(self) -> str:
-        self._online = False
-        raw = self._press.plc_vent_emergency()
-        return f"[PLC Adapter] emergency_stop -> {raw}"
+    def getId(self) -> str:
+        return self.machineId
 
-    def status_report(self) -> str:
-        gauge      = self._press.plc_read_gauge()
-        connection = "ONLINE" if self._online else "OFFLINE"
-        return f"[PLC Adapter | {connection}] {gauge}"
+    def getType(self) -> str:
+        return "hydraulic_press"
+
+    def sendPLCCommand(self, cmd: str) -> bool:
+        return self.plcController.sendCommand(cmd)
 
 
 class AnalogFurnaceAdapter(INetworkMachine):
-    """
-    Wraps the analog furnace behind a simulated relay controller.
-    From the mainframe's perspective this is just another INetworkMachine —
-    the messy relay commands stay hidden inside this class.
-    """
 
-    def __init__(self, furnace: AnalogFurnace) -> None:
-        self._furnace = furnace  # actual legacy hardware object
-        self._online  = False
+    def __init__(self, furnace: AnalogFurnace, machineId: str,
+                 plcController: Optional[PLCController] = None) -> None:
+        self.machineId = machineId
+        self.furnace = furnace
+        self.plcController = plcController or PLCController(f"PLC-{machineId}")
+        self.status = MachineStatus.IDLE
 
-    @property
-    def machine_id(self) -> str:
-        return f"ADAPTER-Furnace-{self._furnace.furnace_tag}"
+    def start(self) -> None:
+        self.plcController.connect()
+        self.plcController.sendCommand("IGNITE 900")
+        self.furnace.closeVents()
+        self.furnace.ignite()
+        self.status = MachineStatus.RUNNING
 
-    def activate(self) -> str:
-        self._online = True
-        ignite = self._furnace.relay_ignite(target_temp=900)
-        seal   = self._furnace.relay_close_vents()
-        return f"[Relay Adapter] activate -> {ignite} | {seal}"
+    def stop(self) -> None:
+        self.plcController.sendCommand("SHUTDOWN")
+        self.furnace.extinguish()
+        self.furnace.openVents()
+        self.plcController.disconnect()
+        self.status = MachineStatus.IDLE
 
-    def deactivate(self) -> str:
-        self._online  = False
-        burners_off   = self._furnace.relay_shutdown_burners()
-        open_vents    = self._furnace.relay_open_vents()
-        return f"[Relay Adapter] deactivate -> {burners_off} | {open_vents}"
+    def getStatus(self) -> MachineStatus:
+        return self.status
 
-    def emergency_stop(self) -> str:
-        self._online  = False
-        burners_off   = self._furnace.relay_shutdown_burners()
-        open_vents    = self._furnace.relay_open_vents()
-        return f"[Relay Adapter] emergency_stop -> {burners_off} | {open_vents}"
+    def getId(self) -> str:
+        return self.machineId
 
-    def status_report(self) -> str:
-        reading    = self._furnace.relay_read_thermocouple()
-        connection = "ONLINE" if self._online else "OFFLINE"
-        return f"[Relay Adapter | {connection}] {reading}"
+    def getType(self) -> str:
+        return "analog_furnace"
+
+    def openVents(self) -> None:
+        self.plcController.sendCommand("OPEN_VENTS")
+        self.furnace.openVents()
+        self.status = MachineStatus.EMERGENCY_STOP
+
+    def sendPLCCommand(self, cmd: str) -> bool:
+        return self.plcController.sendCommand(cmd)

@@ -1,93 +1,52 @@
-# machinery_factory.py
-# MachineryFactory is the only place in the whole project where
-# machine objects get constructed. Everything else just calls create()
-# and gets back an INetworkMachine — no constructors scattered around.
-# To add a new machine type later, you add one entry here and nothing else changes.
+from __future__ import annotations
 
+import json
+from typing import List
+
+from src.interfaces.factory_interface import IMachineFactory
 from src.interfaces.network_machine import INetworkMachine
+from src.interfaces.machine_config import MachineConfig
 from src.machines.modern import RoboticArm, SmartConveyor, LaserCutter
 from src.machines.legacy import LegacyHydraulicPress, AnalogFurnace
 from src.patterns.adapters import HydraulicPressAdapter, AnalogFurnaceAdapter
 
 
-class MachineryFactory:
-    """
-    Reads a plain config dict and hands back the right machine object.
+class PlantConfigReader:
 
-    Supported 'type' values
-    -----------------------
-    robotic_arm      ->  RoboticArm
-    smart_conveyor   ->  SmartConveyor
-    laser_cutter     ->  LaserCutter
-    hydraulic_press  ->  LegacyHydraulicPress tucked inside HydraulicPressAdapter
-    analog_furnace   ->  AnalogFurnace tucked inside AnalogFurnaceAdapter
-    """
+    def readConfig(self, filePath: str) -> List[MachineConfig]:
+        with open(filePath, "r", encoding="utf-8") as handle:
+            raw = json.load(handle)
+        return [self.parseEntry(entry) for entry in raw]
 
-    # maps the config string to the builder method responsible for that type
-    _BUILDERS: dict = {}
+    def parseEntry(self, entry: dict) -> MachineConfig:
+        return MachineConfig(
+            machineType=entry["machineType"],
+            machineId=entry["machineId"],
+            parameters=entry.get("parameters", {}),
+        )
 
-    @classmethod
-    def _load_builders(cls) -> None:
-        if cls._BUILDERS:
-            return   # already loaded, skip
-        cls._BUILDERS = {
-            "robotic_arm":     cls._build_robotic_arm,
-            "smart_conveyor":  cls._build_smart_conveyor,
-            "laser_cutter":    cls._build_laser_cutter,
-            "hydraulic_press": cls._build_hydraulic_press,
-            "analog_furnace":  cls._build_analog_furnace,
-        }
 
-    # ------------------------------------------------------------------
-    # Public entry point
-    # ------------------------------------------------------------------
+class MachineryFactory(IMachineFactory):
 
-    @classmethod
-    def create(cls, config: dict) -> INetworkMachine:
-        """
-        Hand this method a config dict with at minimum 'type' and 'id' keys.
-        It figures out which machine to build and returns it ready to register.
+    def __init__(self) -> None:
+        self.configReader = PlantConfigReader()
 
-        Optional keys per type:
-          speed  (float) -- belt speed in m/s for smart_conveyor
-          power  (int)   -- wattage for laser_cutter
-        """
-        cls._load_builders()
+    def createMachine(self, machineType: str, config: MachineConfig) -> INetworkMachine:
+        params = config.parameters
 
-        requested = config.get("type", "").lower()
+        if machineType == "robotic_arm":
+            return RoboticArm(armId=config.machineId)
+        if machineType == "smart_conveyor":
+            return SmartConveyor(conveyorId=config.machineId, speed=params.get("speed", 0.5))
+        if machineType == "laser_cutter":
+            return LaserCutter(cutterId=config.machineId, powerLevel=params.get("power", 200))
+        if machineType == "hydraulic_press":
+            return HydraulicPressAdapter(LegacyHydraulicPress(), config.machineId)
+        if machineType == "analog_furnace":
+            return AnalogFurnaceAdapter(AnalogFurnace(), config.machineId)
 
-        if requested not in cls._BUILDERS:
-            raise ValueError(
-                f"MachineryFactory: '{requested}' is not a recognised machine type. "
-                f"Available options: {list(cls._BUILDERS.keys())}"
-            )
+        raise ValueError(f"MachineryFactory: '{machineType}' is not a recognised machine type.")
 
-        return cls._BUILDERS[requested](config)
-
-    # ------------------------------------------------------------------
-    # Individual builder methods
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _build_robotic_arm(cfg: dict) -> RoboticArm:
-        return RoboticArm(unit_id=cfg["id"])
-
-    @staticmethod
-    def _build_smart_conveyor(cfg: dict) -> SmartConveyor:
-        spd = cfg.get("speed", 0.5)
-        return SmartConveyor(unit_id=cfg["id"], belt_speed_mps=spd)
-
-    @staticmethod
-    def _build_laser_cutter(cfg: dict) -> LaserCutter:
-        pwr = cfg.get("power", 200)
-        return LaserCutter(unit_id=cfg["id"], power_watts=pwr)
-
-    @staticmethod
-    def _build_hydraulic_press(cfg: dict) -> HydraulicPressAdapter:
-        legacy_hw = LegacyHydraulicPress(serial_number=cfg["id"])
-        return HydraulicPressAdapter(press=legacy_hw)
-
-    @staticmethod
-    def _build_analog_furnace(cfg: dict) -> AnalogFurnaceAdapter:
-        legacy_hw = AnalogFurnace(furnace_tag=cfg["id"])
-        return AnalogFurnaceAdapter(furnace=legacy_hw)
+    def createFromConfig(self, configFile: str) -> List[INetworkMachine]:
+        configs = self.configReader.readConfig(configFile)
+        return [self.createMachine(cfg.machineType, cfg) for cfg in configs]
